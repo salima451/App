@@ -1,0 +1,39 @@
+<div class="register-container">
+    <h2>Créer un compte</h2>
+    <form (ngSubmit)="onSubmit()">
+        <input type="text" name="username" [(ngModel)]="username" placeholder="Nom d'utilisateur" required/>
+        <div style="position: relative;">
+            <input
+              [type]="showPassword ? 'text' : 'password'"
+              name="password"
+              [(ngModel)]="password"
+              placeholder="Mot de passe"
+              required
+              style="width: 100%; padding-right: 40px;"
+            />
+            <button
+              type="button"
+              (click)="togglePasswordVisibility()"
+              style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer;"
+            >
+              {{ showPassword ? '🙈' : '👁️' }}
+            </button>
+        </div>
+
+        <input type="text" name="function" [(ngModel)]="function" placeholder="Fonction" required/>
+        <select name="role" [(ngModel)]="role" required>        
+        <option value="user">Utilisateur</option>
+        <option value="admin">Administrateur</option>
+      </select>
+  
+      <button type="submit">S'inscrire</button>
+      <button (click)="goToHome()"
+      style="margin-bottom: 1rem; background-color: transparent; color: #fcfdfd; border: none; cursor: pointer; font-weight: bold;"
+     >
+       Retour au menu principal
+     </button>
+
+
+    </form>
+  </div>
+  

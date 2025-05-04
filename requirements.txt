@@ -1,0 +1,24 @@
+# Core Libraries
+numpy
+pandas
+matplotlib
+seaborn
+plotly
+statsmodels
+openpyxl
+xlrd
+
+# FastAPI & Dependencies
+fastapi
+uvicorn
+
+# HL7 & Database Interaction
+hl7
+pymysql
+psycopg2-binary
+sqlalchemy
+
+# Utility Tools
+ace_tools
+chardet
+

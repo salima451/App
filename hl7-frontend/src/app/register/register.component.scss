@@ -1,0 +1,60 @@
+.register-container {
+  width: 90%;
+  max-width: 500px;
+  margin: 3rem auto;
+  background: linear-gradient(to bottom right, #f0f6ff, #ffffff);
+  padding: 3rem 2rem;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  font-family: 'Segoe UI', sans-serif;
+  transition: all 0.3s ease;
+
+  h2 {
+    margin-bottom: 2rem;
+    color: #005089;
+    font-weight: bold;
+    font-size: 2rem;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+
+    input,
+    select {
+      padding: 1rem;
+      border: 2px solid #d0e1f9;
+      border-radius: 10px;
+      font-size: 1rem;
+      background-color: #f9fbfd;
+      transition: all 0.3s ease;
+      box-sizing: border-box;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #005089;
+      box-shadow: 0 0 5px rgba(0, 80, 137, 0.5);
+      background-color: #ffffff;
+    }
+
+    button {
+      padding: 1rem;
+      background: linear-gradient(to right, #005089, #003f6b);
+      border: none;
+      color: white;
+      font-weight: bold;
+      font-size: 1.1rem;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.3s;
+
+      &:hover {
+        background: linear-gradient(to right, #003f6b, #002a4d);
+      }
+    }
+  }
+}

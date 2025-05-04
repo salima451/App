@@ -1,0 +1,42 @@
+<div class="container">
+  <h2>Parcours Patient</h2>
+
+  <div class="form-group">
+    <label for="patient-select">Choisissez un ID Patient :</label>
+    <select [(ngModel)]="selectedPatient" id="patient-select">
+      <option value="">-- Choisir un patient --</option>
+      <option *ngFor="let patient of patients" [value]="patient">{{ patient }}</option>
+    </select>
+
+    <br><br>
+    <label>Ou saisissez un ID :</label>
+    <input [(ngModel)]="selectedPatient" placeholder="ID Patient" />
+  </div>
+
+  <button (click)="afficherParcours()">Afficher Parcours</button>
+
+  <div *ngIf="error" class="error">{{ error }}</div>
+
+  <div *ngIf="journey.length > 0">
+    <h3>Processus Administratif</h3>
+
+    <div class="journey-container">
+      <ng-container *ngFor="let step of journey; let last = last">
+        <div
+          class="journey-step"
+          [style.background-color]="getColor(step.Resource)"
+        >
+          <div class="event-date">{{ step.Start }}</div>
+          <div class="event-finish">{{ step.Finish }}</div>
+          <div class="event-unit">
+            {{ step['Unité de soins'] }}
+          </div>
+          <div class="event-type">{{ step.Resource }}</div>
+          <div class="event-doctor" *ngIf="step.Medecin"> {{ step.Medecin }}</div>
+        </div>
+
+        <div class="arrow" *ngIf="!last">→</div>
+      </ng-container>
+    </div>
+  </div>
+</div>

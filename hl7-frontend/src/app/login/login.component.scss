@@ -1,0 +1,93 @@
+.login-page {
+  width: 90%;
+  max-width: 450px;
+  margin: 5rem auto;
+  background: linear-gradient(to bottom right, #eaf4ff, #ffffff);
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  transition: all 0.3s ease;
+}
+
+.welcome-title {
+  text-align: center;
+  margin-bottom: 2rem;
+  color: #005089;
+  font-weight: bold;
+  font-size: 2rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+
+  input {
+    padding: 1rem;
+    font-size: 1rem;
+    border: 2px solid #d0e1f9;
+    border-radius: 10px;
+    background-color: #f9fbfd;
+    transition: all 0.3s ease;
+
+    &:focus {
+      outline: none;
+      border-color: #005089;
+      box-shadow: 0 0 5px rgba(0, 80, 137, 0.4);
+      background-color: #ffffff;
+    }
+  }
+}
+
+.btn-group {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+
+  button {
+    flex: 1;
+    padding: 0.9rem;
+    background: linear-gradient(to right, #005089, #003f6b);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s;
+
+    &:hover {
+      background: linear-gradient(to right, #003f6b, #002a4d);
+    }
+  }
+  .password-container {
+    position: relative;
+    width: 100%;
+  
+    input {
+      width: 100%;
+      padding: 1rem;
+      padding-right: 2.5rem; // espace pour l'œil
+      font-size: 1rem;
+      border: 2px solid #d0e1f9;
+      border-radius: 10px;
+      background-color: #f9fbfd;
+      box-sizing: border-box;
+    }
+  
+    .eye-button {
+      position: absolute;
+      top: 50%;
+      right: 1rem;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2rem;
+    }
+  }
+  
+  
+  
+}

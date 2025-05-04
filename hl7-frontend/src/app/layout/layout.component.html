@@ -1,0 +1,23 @@
+<nav class="navbar">
+    <span class="logo"> HL7 Hospital Dashboard</span>
+  </nav>
+  <div class="container">
+    <aside class="sidebar">
+      <ul>
+        <li><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a></li>
+        <li><a routerLink="/register" routerLinkActive="active">Register</a></li>
+        <li><a routerLink="/users" routerLinkActive="active">Utilisateurs</a></li>
+        <li><a routerLink="/messages" routerLinkActive="active">Messages HL7</a></li>
+        <li><a routerLink="/parcours-patient">Parcours Patient</a></li>
+        <li><a routerLink="/stats">Stats</a></li>
+        <li><a routerLink="notifications">Notifications</a></li>
+        <li><a routerLink="goals">Goals</a></li>
+      </ul>
+    </aside>
+    <main class="layout-main">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+  
+  
+ 

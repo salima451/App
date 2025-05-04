@@ -1,0 +1,27 @@
+<div class="card p-4">
+  <h2>📊 Fréquence des messages HL7</h2>
+
+  <div class="form-group mb-3">
+    <label for="startDate">Date et heure de début :</label>
+    <input type="datetime-local" id="startDate" class="form-control" [(ngModel)]="startDate" name="startDate" />
+  </div>
+
+  <div class="form-group mb-3">
+    <label for="endDate">Date et heure de fin :</label>
+    <input type="datetime-local" id="endDate" class="form-control" [(ngModel)]="endDate" name="endDate" />
+  </div>
+
+  <button class="btn btn-primary mb-3" (click)="loadStats()">Afficher</button>
+
+  <div *ngIf="error" class="alert alert-danger">
+    {{ error }}
+  </div>
+
+  <canvas baseChart
+    [data]="chartData"
+    [type]="chartType"
+    [options]="chartOptions">
+  </canvas>
+
+  <button class="btn btn-success mt-4" (click)="exportExcel()">Exporter Excel</button>
+</div>

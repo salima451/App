@@ -1,0 +1,39 @@
+/* src/app/app.component.scss */
+
+/* Centrer le header */
+.app-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #3246a8;
+    color: white;
+    padding: 20px;
+  }
+  
+/* Centrer le titre dans le header */
+.app-title {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: bold;
+  }
+  
+  .nav-links a {
+    color: white;
+    text-decoration: none;
+    margin-left: 1.5rem;
+    font-weight: 500;
+  }
+  
+  .nav-links a.active {
+    text-decoration: underline;
+  }
+  
+ /* Centrer le contenu principal */
+.app-main {
+    display: flex;
+    flex-direction: column;
+    padding: 30px;
+    min-height: calc(100vh - 100px); /* pour ajuster selon la hauteur du header */
+    background-color: #f4f7fa;
+  }
+  
