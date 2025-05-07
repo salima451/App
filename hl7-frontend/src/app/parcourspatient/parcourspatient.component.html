@@ -1,41 +1,96 @@
 <div class="container">
   <h2>Parcours Patient</h2>
 
+  <!-- Formulaire patient -->
   <div class="form-group">
     <label for="patient-select">Choisissez un ID Patient :</label>
     <select [(ngModel)]="selectedPatient" id="patient-select">
       <option value="">-- Choisir un patient --</option>
-      <option *ngFor="let patient of patients" [value]="patient">{{ patient }}</option>
+      <option *ngFor="let patient of patients" [value]="patient">
+        {{ patient }}
+      </option>
     </select>
-
-    <br><br>
-    <label>Ou saisissez un ID :</label>
-    <input [(ngModel)]="selectedPatient" placeholder="ID Patient" />
+    <br /><br />
+    <label for="patient-input">Ou saisissez un ID :</label>
+    <input
+      id="patient-input"
+      type="text"
+      [(ngModel)]="selectedPatient"
+      placeholder="ID Patient"
+    />
   </div>
 
   <button (click)="afficherParcours()">Afficher Parcours</button>
-
   <div *ngIf="error" class="error">{{ error }}</div>
 
-  <div *ngIf="journey.length > 0">
+  <!-- Parcours -->
+  <div *ngIf="journey?.length" class="journey-container">
     <h3>Processus Administratif</h3>
+    <div class="journey-row">
+      <ng-container *ngFor="
+      let step of journey
+        | filterResource:['A01','A02','A03'];
+      let idx = index;
+      let last = last
+    ">
+        <!-- Boîte rectangulaire -->
+        <div class="box" [style.background-color]="getColor(step.Resource)">
+          <!-- Admission -->
+          <ng-container *ngIf="step.Resource.startsWith('A01')">
+            <div class="line"><strong>NSEJ :</strong> {{ step.NSEJ }}</div>
+            <div class="line"><strong>CBMRN :</strong> {{ step.CBMRN }}</div>
+            <div class="line">
+              Admission en {{ (step['Unité de soins'] || '').split('-')[0] }}
+            </div>
+            <div class="line">{{ step['Unité de soins'] }}</div>
+            <div class="line date">{{ step["Date/heure d'événement"] }}</div>
+            <div class="line italic">
+              Temps passé en {{ (step['Unité de soins'] || '').split('-')[0] }} :
+              {{ step["Temps passé"] }}
+            </div>
+          </ng-container>
 
-    <div class="journey-container">
-      <ng-container *ngFor="let step of journey; let last = last">
-        <div
-          class="journey-step"
-          [style.background-color]="getColor(step.Resource)"
-        >
-          <div class="event-date">{{ step.Start }}</div>
-          <div class="event-finish">{{ step.Finish }}</div>
-          <div class="event-unit">
-            {{ step['Unité de soins'] }}
-          </div>
-          <div class="event-type">{{ step.Resource }}</div>
-          <div class="event-doctor" *ngIf="step.Medecin"> {{ step.Medecin }}</div>
+          <!-- Transfert -->
+          <ng-container *ngIf="step.Resource.startsWith('A02')">
+            <div class="line"><strong>NSEJ :</strong> {{ step.NSEJ }}</div>
+            <div class="line"><strong>CBMRN :</strong> {{ step.CBMRN }}</div>
+            <div class="line">
+              Transfert en {{ (step['Unité de soins'] || '').split('-')[0] }}
+              <span *ngIf="step['Service technique']">
+                -{{ (step['Service technique'] || '').split('-')[0] }}
+              </span>
+            </div>
+            <div class="line">{{ step['Unité de soins'] }}</div>
+            <div class="line date">{{ step["Date/heure d'événement"] }}</div>
+            <div class="line italic">
+              Temps passé en {{ (step['Unité de soins'] || '').split('-')[0] }} :
+              {{ step["Temps passé"] }}
+            </div>
+            <div
+              class="line italic"
+              *ngIf="last && !hasDischarge()"
+            >
+              Durée totale de séjour (non terminé) :
+              {{ step["Durée totale de séjour"] }}
+            </div>
+          </ng-container>
+
+          <!-- Discharge -->
+          <ng-container *ngIf="step.Resource.startsWith('A03')">
+            <div class="line"><strong>NSEJ :</strong> {{ step.NSEJ }}</div>
+            <div class="line"><strong>CBMRN :</strong> {{ step.CBMRN }}</div>
+            <div class="line">DISCHARGE</div>
+            <div class="line date">{{ step["Date/heure d'événement"] }}</div>
+            <div class="line italic">
+              Durée totale de séjour : {{ step["Durée totale de séjour"] }}
+            </div>
+          </ng-container>
         </div>
 
-        <div class="arrow" *ngIf="!last">→</div>
+        <!-- Flèche unique entre boîtes -->
+        <div class="arrow" *ngIf="
+        idx < (journey | filterResource:['A01','A02','A03']).length - 1
+      "></div>
       </ng-container>
     </div>
   </div>

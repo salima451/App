@@ -12,7 +12,7 @@ export const routes: Routes = [
       { path: 'messages', loadComponent: () => import('./messages/messages.component').then(m => m.MessagesComponent) },
       { path: 'stats', loadComponent: () => import('./stats/stats.component').then(m => m.StatsComponent) },
       { path: 'parcours-patient', loadComponent: () => import('./parcourspatient/parcourspatient.component').then(m => m.ParcoursComponent) },
-
+      { path: 'tableaudebord', loadComponent: () => import('./tableaudebord/tableaudebord.component').then(m => m.TableaudebordComponent) },
     ]
   },
 ];

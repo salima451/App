@@ -17,11 +17,15 @@ export interface StatPoint {
 }
 // ✅ Remplacer l’ancienne interface
 export interface PatientJourneyEvent {
-  Start: string;
-  Finish: string;
-  "Unité de soins": string;
-  Resource: string;
-  Medecin?: string;
+  NSEJ:                     string;
+  CBMRN:                    string;
+  Resource:                 string;
+  'Unité de soins'?:        string;
+  'Service technique'?:     string;
+  "Date/heure d'événement"?: string;
+  "Temps passé"?:           string;
+  "Temps passé en cours"?:  string;
+  "Durée totale de séjour"?: string;
 }
 
 export interface PatientsResponse {
