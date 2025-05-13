@@ -1,1 +1,43 @@
-<p>tableaudebord works!</p>
+<div class="container">
+  <div class="form-card">
+    <h2>Volumétrie hospitalière</h2>
+
+    <label for="start-date">Date de début :</label>
+    <input id="start-date" type="date" class="form-input" [(ngModel)]="startDate">
+
+    <label for="end-date">Date de fin :</label>
+    <input id="end-date" type="date" class="form-input" [(ngModel)]="endDate">
+
+    <label for="start-hour">Heure de début :</label>
+    <input id="start-hour" type="time" class="form-input" [(ngModel)]="startHour">
+
+    <label for="end-hour">Heure de fin :</label>
+    <input id="end-hour" type="time" class="form-input" [(ngModel)]="endHour">
+
+    <button class="btn" (click)="onAfficherVolumetrie()">Afficher la volumétrie</button>
+  </div>
+
+
+ <!-- Graphe total patients -->
+    <div class="chart-section" *ngIf="chartOptions?.series && chartOptions?.chart && chartOptions?.xaxis && chartOptions?.title">
+    <apx-chart
+        [series]="chartOptions.series"
+        [chart]="chartOptions.chart"
+        [title]="chartOptions.title"
+        [xaxis]="chartOptions.xaxis">
+    </apx-chart>
+    </div>
+
+    <!-- Graphe par unité -->
+    <div class="chart-section" *ngIf="unitChartOptions?.series && unitChartOptions?.chart && unitChartOptions?.xaxis && unitChartOptions?.title">
+    <apx-chart
+        [series]="unitChartOptions.series"
+        [chart]="unitChartOptions.chart"
+        [title]="unitChartOptions.title"
+        [xaxis]="unitChartOptions.xaxis">
+    </apx-chart>
+    </div>
+
+
+</div>
+

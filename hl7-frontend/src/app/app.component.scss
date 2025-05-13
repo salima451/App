@@ -1,39 +1,61 @@
-/* src/app/app.component.scss */
+/* app.component.scss */
 
-/* Centrer le header */
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
 .app-header {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background-color: #3246a8;
-    color: white;
-    padding: 20px;
-  }
-  
-/* Centrer le titre dans le header */
-.app-title {
-    margin: 0;
-    font-size: 2rem;
-    font-weight: bold;
-  }
-  
-  .nav-links a {
-    color: white;
-    text-decoration: none;
-    margin-left: 1.5rem;
-    font-weight: 500;
-  }
-  
-  .nav-links a.active {
-    text-decoration: underline;
-  }
-  
- /* Centrer le contenu principal */
+  background-color: #2a3f9d;
+  color: white;
+  padding: 16px;
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: bold;
+}
+
+.app-layout {
+  display: flex;
+  height: calc(100vh - 70px); /* header height */
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 220px;
+  background-color: #f0f2f5;
+  padding: 16px;
+  border-right: 1px solid #ddd;
+}
+
+.sidebar-title {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #2a3f9d;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar ul li {
+  margin: 10px 0;
+}
+
+.sidebar ul li a {
+  text-decoration: none;
+  color: #333;
+  font-weight: 500;
+}
+
+.sidebar ul li a:hover {
+  color: #2a3f9d;
+}
+
 .app-main {
-    display: flex;
-    flex-direction: column;
-    padding: 30px;
-    min-height: calc(100vh - 100px); /* pour ajuster selon la hauteur du header */
-    background-color: #f4f7fa;
-  }
-  
+  flex-grow: 1;
+  padding: 32px;
+  overflow-y: auto;
+  background-color: #f7f9fc;
+}

@@ -25,7 +25,7 @@
 
   <!-- Parcours -->
   <div *ngIf="journey?.length" class="journey-container">
-    <h3>Processus Administratif</h3>
+    <h3>Processus Physique du patient </h3>
     <div class="journey-row">
       <ng-container *ngFor="
       let step of journey
@@ -80,7 +80,7 @@
             <div class="line"><strong>NSEJ :</strong> {{ step.NSEJ }}</div>
             <div class="line"><strong>CBMRN :</strong> {{ step.CBMRN }}</div>
             <div class="line">DISCHARGE</div>
-            <div class="line date">{{ step["Date/heure d'événement"] }}</div>
+            <div class="line date">{{ step["Date/heure de sortie"] }}</div>
             <div class="line italic">
               Durée totale de séjour : {{ step["Durée totale de séjour"] }}
             </div>

@@ -1,23 +1,30 @@
 import os
 import io
-from datetime import datetime
-from typing import List, Optional, Dict
+import logging
+import time
+from datetime import datetime, date, timedelta
+from typing import List, Optional, Dict, Tuple
+
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
-
+from collections import defaultdict
+from watchdog.observers.polling import PollingObserver as Observer
+from watchdog.events import FileSystemEventHandler
 import pandas as pd
-
+from contextlib import asynccontextmanager
 from app.database import SessionLocal, create_tables
 from app.models import HL7MessageWish, HL7MessageOrline
 from app.schemas import HL7MessageWishSchema, HL7MessageOrlineSchema
 from app.crud import create_wish_message, create_orline_message
 
+
 create_tables()
-app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+
 
 fake_users_db = {}
 unit_names = {
@@ -62,20 +69,30 @@ unit_names = {
         "410A": "410-HOPITAL DE JOUR CHIR/UAPO-HJ",
         "415": "415-HOPITAL DE JOUR CHIRURGICAL"
 }
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:4200"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+WATCHED_FOLDERS = {
+    r"C:\Users\sbenayed\Desktop\PFE\hl7_archive\WISH ADT 7 avril 2025": "WISH",
+    r"C:\Users\sbenayed\Desktop\PFE\hl7_archive\ORL SIU 7 avril 2025": "ORLine",
+    r"C:\Users\sbenayed\Desktop\PFE\hl7_archive\ORL ADT 7 avril 2025": "ORLine",
+}
+
+SUPPORTED_EXTENSIONS = [".hl7", ".txt", ".dat", ".xml"]
+
+
+class HourlyCount(BaseModel):
+    hour: str  # au lieu de int
+    total_patients: int
+    by_unit: Dict[str, int]
+
+class DailyCount(BaseModel):
+    date: date
+    hourly_counts: List[HourlyCount]
+class PatientCountsResponse(BaseModel):
+    start_date: date
+    end_date: date
+    daily_counts: List[DailyCount]
+
+
 
 def parse_hl7_datetime(dt_str: str) -> str:
     if not dt_str:
@@ -91,6 +108,173 @@ def parse_hl7_datetime(dt_str: str) -> str:
     except Exception:
         return dt_str
 
+class HL7Handler(FileSystemEventHandler):
+    def __init__(self, source: str):
+        super().__init__()
+        self.source = source
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self._process(event.src_path)
+
+    def on_moved(self, event):
+        # Fichiers copiés depuis l’explorateur arrivent souvent via un move
+        if not event.is_directory:
+            self._process(event.dest_path)
+
+    def on_modified(self, event):
+        # Couvrir d’éventuelles modifications in-place
+        if not event.is_directory:
+            self._process(event.src_path)
+
+    def _process(self, path: str):
+        # Laisser Windows finir la copie
+        time.sleep(0.1)
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            return
+
+        logging.info(f"→ Processing HL7 file {path} as {ext}")
+        db = SessionLocal()
+        try:
+            # Lecture en UTF-8 ou ISO-8859-1
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                with open(path, "r", encoding="iso-8859-1") as f:
+                    content = f.read()
+
+            # Insertion en base
+            if self.source == "WISH":
+                create_wish_message(db, content)
+            else:
+                create_orline_message(db, content)
+
+            # Suppression
+            os.remove(path)
+            logging.info(f"✓ Handled and removed {path}")
+        except Exception as e:
+            logging.error(f"Error processing {path}: {e}")
+        finally:
+            db.close()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.info("▶️ Lifespan startup begin") 
+    app.state.observers = []
+
+    # 1) Backlog : traiter les fichiers déjà présents
+    for path, source in WATCHED_FOLDERS.items():
+        os.makedirs(path, exist_ok=True)
+        handler = HL7Handler(source)
+        # Timeout plus court pour quasi-temps réel
+        obs = Observer(timeout=0.5)
+        obs.schedule(handler, path, recursive=False)
+        obs.start()
+        logging.info(f"Watcher (real-time) started on {path}")
+        app.state.observers.append(obs)
+        for fname in os.listdir(path):
+            full = os.path.join(path, fname)
+            ext = os.path.splitext(full)[1].lower()
+            if os.path.isfile(full) and ext in SUPPORTED_EXTENSIONS:
+                logging.info(f"Backlog processing existing file {full}")
+                db = SessionLocal()
+                try:
+                    # Lecture robuste du contenu
+                    try:
+                        with open(full, "r", encoding="utf-8") as f:
+                            content = f.read()
+                    except UnicodeDecodeError:
+                        with open(full, "r", encoding="iso-8859-1") as f:
+                            content = f.read()
+
+                    # Insertion en base
+                    if source == "WISH":
+                        create_wish_message(db, content)
+                    else:
+                        create_orline_message(db, content)
+
+                    # Suppression du fichier
+                    os.remove(full)
+                    logging.info(f"Backlog removed {full}")
+                finally:
+                    db.close()
+
+    # 2) Démarrage des observers pour les nouveaux fichiers
+    for path, source in WATCHED_FOLDERS.items():
+        handler = HL7Handler(source)
+        obs = Observer()
+        obs.schedule(handler, path, recursive=False)
+        obs.start()
+        logging.info(f"Watcher started on {path} (source={source})")
+        app.state.observers.append(obs)
+    logging.info("▶️ Lifespan startup end") 
+    yield  # l’app démarre ici
+    logging.info("⏹ Lifespan shutdown")
+    # 3) Arrêt propre
+    for obs in app.state.observers:
+        obs.stop()
+        obs.join()
+        logging.info("Watcher stopped cleanly")
+
+# --- Instanciation de l’app ---
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def process_file(filepath: str, source: str, db: Session):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            content = file.read()
+    except UnicodeDecodeError:
+        with open(filepath, 'r', encoding='iso-8859-1') as file:
+            content = file.read()
+
+    if source == "WISH":
+        create_wish_message(db=db, hl7_raw_message=content)
+    elif source == "ORLine":
+        create_orline_message(db=db, hl7_raw_message=content)
+
+def process_all_folders():
+    db = SessionLocal()
+    try:
+        for folder_path, source in WATCHED_FOLDERS.items():
+            if not os.path.isdir(folder_path):
+                continue
+            for filename in os.listdir(folder_path):
+                full_path = os.path.join(folder_path, filename)
+                if os.path.isfile(full_path) and os.path.splitext(filename)[1].lower() in SUPPORTED_EXTENSIONS:
+                    process_file(full_path, source, db)
+    finally:
+        db.close()
+
+@app.post("/process-all/")
+def run_full_importation(db: Session = Depends(get_db)):
+    process_all_folders()
+    return {"message": "Importation terminée."}
+
+@app.delete("/clear-all/")
+def clear_all_tables(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("TRUNCATE TABLE hl7_message_wish RESTART IDENTITY CASCADE"))
+        db.execute(text("TRUNCATE TABLE hl7_message_orline RESTART IDENTITY CASCADE"))
+        db.commit()
+        return {"message": "Toutes les tables ont été vidées avec succès."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
 @app.get("/wish/", response_model=List[HL7MessageWishSchema])
 def get_all_wish_messages(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
     return db.query(HL7MessageWish).offset(skip).limit(limit).all()
@@ -134,55 +318,6 @@ def get_sejours_by_patient(id_pat: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Aucun séjour trouvé pour ce patient.")
 
     return sorted(sejours)
-WATCHED_FOLDERS = {
-    r"C:\Users\sbenayed\Desktop\WISH_ADT - Copie\WISH_ADT - Copie": "WISH",
-    r"C:\Users\sbenayed\Desktop\ORLine\SIU": "ORLine",
-    r"C:\Users\sbenayed\Desktop\ORLine\ADT": "ORLine",
-}
-
-SUPPORTED_EXTENSIONS = [".hl7", ".txt", ".dat", ".xml"]
-
-def process_file(filepath: str, source: str, db: Session):
-    try:
-        with open(filepath, 'r', encoding='utf-8') as file:
-            content = file.read()
-    except UnicodeDecodeError:
-        with open(filepath, 'r', encoding='iso-8859-1') as file:
-            content = file.read()
-
-    if source == "WISH":
-        create_wish_message(db=db, hl7_raw_message=content)
-    elif source == "ORLine":
-        create_orline_message(db=db, hl7_raw_message=content)
-
-def process_all_folders():
-    db = SessionLocal()
-    try:
-        for folder_path, source in WATCHED_FOLDERS.items():
-            if not os.path.isdir(folder_path):
-                continue
-            for filename in os.listdir(folder_path):
-                full_path = os.path.join(folder_path, filename)
-                if os.path.isfile(full_path) and os.path.splitext(filename)[1].lower() in SUPPORTED_EXTENSIONS:
-                    process_file(full_path, source, db)
-    finally:
-        db.close()
-
-@app.post("/process-all/")
-def run_full_importation(db: Session = Depends(get_db)):
-    process_all_folders()
-    return {"message": "Importation terminée."}
-
-@app.delete("/clear-all/")
-def clear_all_tables(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("TRUNCATE TABLE hl7_message_wish RESTART IDENTITY CASCADE"))
-        db.execute(text("TRUNCATE TABLE hl7_message_orline RESTART IDENTITY CASCADE"))
-        db.commit()
-        return {"message": "Toutes les tables ont été vidées avec succès."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
 
 @app.get("/messages-by-patient/{patient_id}")
 def get_messages_by_patient(patient_id: str, source: str = Query("both", enum=["wish", "orline", "both"]), db: Session = Depends(get_db)):
@@ -313,11 +448,52 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
             wish_df = wish_df.drop(columns=[col])
     if "clrs_cd" in wish_df.columns:
         wish_df = wish_df[wish_df["clrs_cd"].isin(["A01", "A02", "A03"])]
-
+        wish_df["clrs_cd"] = wish_df["clrs_cd"].map({
+            "A01": "A",
+            "A02": "T",
+            "A03": "D"
+        })
     if "clfrom" in wish_df.columns:
        wish_df["clfrom"] = pd.to_datetime(wish_df["clfrom"], errors="coerce")
        wish_df = wish_df.sort_values(by=["cbmrn", "clfrom"])
+    if "clnsid" in wish_df.columns:
+       wish_df["nsdscr"] = wish_df["clnsid"].map(unit_names).fillna("")
+       wish_df = wish_df[wish_df["clnsid"].isin(unit_names.keys())]
+    wish_df["clfrom"] = pd.to_datetime(wish_df["clfrom"], errors="coerce")
+    wish_df = wish_df.sort_values(["cbmrn", "nsej", "clnsid", "clfrom"])
+    wish_df["prev_clfrom"] = wish_df.groupby(
+      ["cbmrn", "nsej", "clnsid"]
+    )["clfrom"].shift(1)
+    wish_df["delta_min"] = (
+       (wish_df["clfrom"] - wish_df["prev_clfrom"])
+       .dt.total_seconds() / 60.0
+    )
+    to_drop = []
+    for (pat, sej, unit), grp in wish_df.groupby(["cbmrn", "nsej", "clnsid"]):
+       # repère les indices où delta < 5
+       short = grp[grp["delta_min"] < 5.0]
+       if short.empty:
+         continue
+       # pour chacun de ces cas, on regarde si l’un des deux a clsvtc == "8BLO"
+       for idx in short.index:
+          # ligne actuelle et précédente
+          prev = grp.loc[idx, "prev_clfrom"]
+          cur = grp.loc[idx, "clfrom"]
+          # sous-groupe de ces deux lignes
+          two = grp[(grp["clfrom"] == prev) | (grp["clfrom"] == cur)]
+          if "8BLO" in two["clsvtc"].values:
+              # on supprime toutes sauf celle avec 8BLO
+              drop_idx = two[two["clsvtc"] != "8BLO"].index
+          else:
+             # on supprime toutes sauf la plus récente
+             drop_idx = [two.index.min()]
+          to_drop.extend(drop_idx)
 
+    # ❺ On débarrasse wish_df des lignes indésirables
+    wish_df = wish_df.drop(index=set(to_drop))
+
+    # ❻ On peut nettoyer les colonnes intermédiaires
+    wish_df = wish_df.drop(columns=["prev_clfrom", "delta_min"])
     # 2) Réordonner les colonnes selon votre liste
     wish_order = [
         "clrs_cd", "nsej", "cbmrn", "cbtype", "cbadty", "tsv", "clfrom",
@@ -420,100 +596,234 @@ def get_patient_journey_detailed(
     id_pat: str,
     db: Session = Depends(get_db)
 ) -> List[Dict]:
-    # 1) Récupération des messages WISH + ORLINE
-    wish_msgs   = db.query(HL7MessageWish).filter(HL7MessageWish.cbmrn == id_pat).all()
+    wish_msgs = db.query(HL7MessageWish).filter(HL7MessageWish.cbmrn == id_pat).all()
     orline_msgs = db.query(HL7MessageOrline).filter(HL7MessageOrline.id_pat == id_pat).all()
-    all_msgs    = [*wish_msgs, *orline_msgs]
+    all_msgs = [*wish_msgs, *orline_msgs]
 
-    # 2) Construction de la liste brute d'événements
     raw: List[Dict] = []
     for msg in all_msgs:
-        d    = msg.__dict__
+        d = msg.__dict__
         code = (d.get("clrs_cd") or "").upper()
         if code not in {"A01", "A02", "A03"}:
             continue
         dt = format_dt(d.get("cltima"))
         if dt is None:
             continue
-
         raw.append({
-            "nsej":   d.get("nsej"),
-            "cbmrn":  d.get("cbmrn"),
+            "nsej": d.get("nsej"),
+            "cbmrn": d.get("cbmrn"),
             "clnsid": d.get("clnsid") or "",
             "clsvtc": d.get("clsvtc") or "",
-            "dt":     dt,
-            "code":   code
+            "dt": dt,
+            "code": code
         })
 
-    # 3) Tri chronologique
     raw.sort(key=lambda e: e["dt"])
     if not raw:
         raise HTTPException(404, "Aucun événement A01/A02/A03 trouvé.")
 
-    # 4) Date d’admission initiale pour calcul de durée totale
-    admission_dt = next((e["dt"] for e in raw if e["code"] == "A01"), raw[0]["dt"])
+    a01_indices = [i for i, e in enumerate(raw) if e["code"] == "A01"]
+    if not a01_indices:
+        raise HTTPException(404, "Aucun événement d’admission trouvé.")
+    last_a01_index = max(a01_indices, key=lambda i: raw[i]["dt"])
+    last_admission = raw[last_a01_index]
+    raw = [e for i, e in enumerate(raw) if e["code"] != "A01" or i == last_a01_index]
 
-    # 5) Construction du résultat formaté
+    filtered = []
+    i = 0
+    while i < len(raw):
+        curr = raw[i]
+        if i + 1 < len(raw):
+            nxt = raw[i + 1]
+            delta = nxt["dt"] - curr["dt"]
+            same_sej = curr["nsej"] == nxt["nsej"]
+            same_unit = curr["clnsid"] == nxt["clnsid"]
+
+            if curr["code"] == "A02" and nxt["code"] == "A02" and same_sej and same_unit and delta < timedelta(minutes=5):
+                # Si l’un des deux contient clsvtc prioritaire, garder celui-là
+                if nxt["clsvtc"] in {"8BLO", "8REV"}:
+                    filtered.append(nxt)
+                elif curr["clsvtc"] in {"8BLO", "8REV"}:
+                    filtered.append(curr)
+                else:
+                    filtered.append(nxt)  # garder le plus récent
+                i += 2
+                continue
+
+            if curr["code"] == "A02" and delta < timedelta(minutes=5) and curr["clsvtc"] not in {"8BLO", "8REV"}:
+                i += 1
+                continue
+
+        filtered.append(curr)
+        i += 1
+
+    admission_dt = last_admission["dt"]
+    filtered.insert(0, last_admission)
+
     result: List[Dict] = []
-    for idx, ev in enumerate(raw):
-        is_last  = (idx == len(raw) - 1)
-        dt_evt   = fmt_str(ev["dt"])
-        unité    = unit_names.get(ev["clnsid"], ev["clnsid"])
-        service  = service_technique_names.get(ev["clsvtc"], ev["clsvtc"])
+    for idx, ev in enumerate(filtered):
+        is_last = (idx == len(filtered) - 1)
+        dt_evt = fmt_str(ev["dt"])
+        unit = unit_names.get(ev["clnsid"], ev["clnsid"])
+        service = service_technique_names.get(ev["clsvtc"], ev["clsvtc"])
         code_lbl = {"A01": "ADMISSION", "A02": "TRANSFER", "A03": "DISCHARGE"}[ev["code"]]
-        next_dt  = raw[idx + 1]["dt"] if idx + 1 < len(raw) else None
+        next_dt = filtered[idx + 1]["dt"] if idx + 1 < len(filtered) else None
 
-        # 1) Admission
         if ev["code"] == "A01":
             result.append({
-                "NSEJ":                   ev["nsej"],
-                "CBMRN":                  ev["cbmrn"],
-                "Resource":               f"{ev['code']} - {code_lbl}",
-                "Unité de soins":         unité,
-                "Service technique":      service,
+                "NSEJ": ev["nsej"],
+                "CBMRN": ev["cbmrn"],
+                "Resource": f"{ev['code']} - {code_lbl}",
+                "Unité de soins": unit,
+                "Service technique": service,
                 "Date/heure d'événement": dt_evt,
-                "Temps passé":            diff_str(ev["dt"], next_dt)
+                "Temps passé": diff_str(ev["dt"], next_dt)
             })
             continue
 
-        # 2) Transfert intermédiaire
-        if ev["code"] == "A02" and not is_last:
+        if ev["code"] == "A02":
             result.append({
-                "NSEJ":                   ev["nsej"],
-                "CBMRN":                  ev["cbmrn"],
-                "Resource":               f"{ev['code']} - {code_lbl}",
-                "Unité de soins":         unité,
-                "Service technique":      service,
+                "NSEJ": ev["nsej"],
+                "CBMRN": ev["cbmrn"],
+                "Resource": f"{ev['code']} - {code_lbl}",
+                "Unité de soins": unit,
+                "Service technique": service,
                 "Date/heure d'événement": dt_evt,
-                "Temps passé":            diff_str(ev["dt"], next_dt)
+                "Temps passé" if not is_last else "Temps passé en cours": diff_str(ev["dt"], next_dt if not is_last else None)
             })
             continue
 
-        # 3) Dernier transfert non terminé
-        if ev["code"] == "A02" and is_last:
-            result.append({
-                "NSEJ":                   ev["nsej"],
-                "CBMRN":                  ev["cbmrn"],
-                "Resource":               f"{ev['code']} - {code_lbl}",
-                "Unité de soins":         unité,
-                "Service technique":      service,
-                "Date/heure d'événement": dt_evt,
-                "Temps passé en cours":   diff_str(ev["dt"], None)
-            })
-            break
-
-        # 4) Discharge final
-        if ev["code"] == "A03" and is_last:
+        if ev["code"] == "A03":
             total = diff_str(admission_dt, ev["dt"])
             result.append({
-                "NSEJ":                   ev["nsej"],
-                "CBMRN":                  ev["cbmrn"],
-                "Resource":               f"{ev['code']} - {code_lbl}",
-                "Unité de soins":         unité,
-                "Service technique":      service,
-                "Date/heure de sortie":   dt_evt,
+                "NSEJ": ev["nsej"],
+                "CBMRN": ev["cbmrn"],
+                "Resource": f"{ev['code']} - {code_lbl}",
+                "Unité de soins": unit,
+                "Service technique": service,
+                "Date/heure de sortie": dt_evt,
                 "Durée totale de séjour": total
             })
             break
 
     return result
+
+
+
+
+
+@app.get(
+    "/tableaudebord/patient-counts-advanced-v2",
+    response_model=PatientCountsResponse
+)
+def patient_counts_advanced_v2(
+    start_date: date = Query(None, description="Date de début (YYYY-MM-DD)"),
+    end_date:   date = Query(None, description="Date de fin (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+) -> PatientCountsResponse:
+    """
+    Pour chaque jour de [start_date…end_date], renvoie :
+      - total_patients : nombre de patients dans l'hôpital
+      - by_unit : { unité: patients dans cette unité }
+    """
+    # 1) Période par défaut = 30 derniers jours
+    today = date.today()
+    if end_date is None:
+        end_date = today
+    if start_date is None:
+        start_date = end_date - timedelta(days=29)
+
+    # 2) Collecte des événements A01/A02/A03 (identique à la version précédente)
+    events: List[Tuple[datetime, str, Tuple[str,str], str]] = []
+    def collect(msg, code_field, time_field, pat_field, seq_field, unit_field):
+        d = msg.__dict__
+        code = (d.get(code_field) or "").upper()
+        if code not in {"A01","A02","A03"}:
+            return
+        ts = d.get(time_field)
+        try:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        except:
+            return
+        key = (d.get(pat_field), d.get(seq_field))
+        unit = d.get(unit_field) or "Inconnu"
+        events.append((dt, code, key, unit))
+
+    wish = db.query(HL7MessageWish).filter(HL7MessageWish.clrs_cd.in_(["A01","A02","A03"])).all()
+    orline = db.query(HL7MessageOrline).filter(HL7MessageOrline.message_type.in_(["A01","A02","A03"])).all()
+    for m in wish:
+        collect(m, "clrs_cd",      "cltima",      "cbmrn",  "nsej",      "clnsid")
+    for m in orline:
+        collect(m, "message_type", "date_message","id_pat", "id_sejour", "Service_Name")
+
+    # 3) Trier tous les événements
+    events.sort(key=lambda x: x[0])
+
+    # 4) Initialisation avant start_date
+    total = 0
+    by_unit = defaultdict(int)
+    current_stay_unit: Dict[Tuple[str,str], str] = {}
+    for dt, code, key, unit in events:
+        if dt.date() >= start_date:
+            break
+        if code == "A01":
+            total += 1
+            by_unit[unit] += 1
+            current_stay_unit[key] = unit
+        elif code == "A02" and key in current_stay_unit:
+            old = current_stay_unit[key]
+            by_unit[old] -= 1
+            by_unit[unit] += 1
+            current_stay_unit[key] = unit
+        elif code == "A03" and key in current_stay_unit:
+            total -= 1
+            old = current_stay_unit.pop(key)
+            by_unit[old] -= 1
+
+    # 5) Parcours jour par jour
+    daily: List[DailyCount] = []
+    idx = 0
+    num_days = (end_date - start_date).days + 1
+    for i in range(num_days):
+        d = start_date + timedelta(days=i)
+        hourly_counts: List[HourlyCount] = []
+
+        for h in range(24):
+            current_hour = datetime.combine(d, datetime.min.time()) + timedelta(hours=h)
+            next_hour = current_hour + timedelta(hours=1)
+
+            # Appliquer les événements de cette heure
+            while idx < len(events) and current_hour <= events[idx][0] < next_hour:
+                _, code, key, unit = events[idx]
+                if code == "A01":
+                    total += 1
+                    by_unit[unit] += 1
+                    current_stay_unit[key] = unit
+                elif code == "A02" and key in current_stay_unit:
+                    old = current_stay_unit[key]
+                    by_unit[old] -= 1
+                    by_unit[unit] += 1
+                    current_stay_unit[key] = unit
+                elif code == "A03" and key in current_stay_unit:
+                    total -= 1
+                    old = current_stay_unit.pop(key)
+                    by_unit[old] -= 1
+                idx += 1
+
+            snapshot = {u: cnt for u, cnt in by_unit.items() if cnt > 0}
+            hourly_counts.append(HourlyCount(
+                hour=f"{h:02d}:00",
+                total_patients=total,
+                by_unit=snapshot.copy()
+            ))
+
+        daily.append(DailyCount(
+            date=d,
+            hourly_counts=hourly_counts
+        ))
+
+    return PatientCountsResponse(
+        start_date=start_date,
+        end_date=end_date,
+        daily_counts=daily
+    )

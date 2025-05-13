@@ -23,6 +23,7 @@ export interface PatientJourneyEvent {
   'Unité de soins'?:        string;
   'Service technique'?:     string;
   "Date/heure d'événement"?: string;
+  "Date/heure de sortie"?: string; 
   "Temps passé"?:           string;
   "Temps passé en cours"?:  string;
   "Durée totale de séjour"?: string;
@@ -121,8 +122,16 @@ export class Hl7Service {
   getPatientJourney(patientId: string): Observable<PatientJourneyEvent[]> {
     return this.http.get<PatientJourneyEvent[]>(`${this.baseUrl}/patient-journey-gantt/${encodeURIComponent(patientId)}`);
   }
-
+  
   clearDatabase(): Observable<{ message: string }> {
     return this.http.delete<{ message: string }>(`${this.baseUrl}/clear-all/`);
   }
+  getPatientCountsAdvanced(start: string, end: string): Observable<any> {
+      return this.http.get(`${this.baseUrl}/tableaudebord/patient-counts-advanced-v2`, {
+        params: {
+          start_date: start,
+          end_date: end
+        }
+      });
+    }
 }
