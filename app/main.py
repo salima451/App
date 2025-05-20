@@ -439,10 +439,40 @@ def get_patient_journey_one_sejour(id_pat: str, id_sejour: str, db: Session = De
 @app.get("/hl7/export-all")
 def export_all_messages_to_excel(db: Session = Depends(get_db)):
     # 1) Charger Wish et construire le DataFrame
-    wish_messages = db.query(HL7MessageWish).all()
-    wish_data = [msg.__dict__ for msg in wish_messages]
-    wish_df = pd.DataFrame(wish_data)
-    # Supprimer les colonnes inutiles
+    wish_messages = db.query(HL7MessageWish).yield_per(500)
+    extracted_data = []
+    for msg in wish_messages:
+        nsej = msg.nsej
+
+        # Forcer extraction de nsej depuis PV1 pour A05 si nécessaire
+        if msg.clrs_cd in ["A01", "A02", "A03"] and (not nsej or nsej.strip() == ""):
+            try:
+                if msg.hl7_raw:
+                    for line in msg.hl7_raw.splitlines():
+                        if line.startswith("PV1|"):
+                            parts = line.strip().split("|")
+                            if len(parts) > 19:
+                                raw_nsej = parts[19].strip()
+                                nsej = raw_nsej[1:] if raw_nsej.startswith("1") else raw_nsej
+                            break
+            except Exception:
+                pass
+        if msg.clrs_cd=="A05"and (not nsej or nsej.strip() == ""):
+            try:
+                if msg.hl7_raw:
+                    for line in msg.hl7_raw.splitlines():
+                        if line.startswith("PV1|"):
+                            parts = line.strip().split("|")
+                            if len(parts) > 6:
+                                raw_nsej = parts[6].strip()
+                                nsej = raw_nsej[1:] if raw_nsej.startswith("1") else raw_nsej
+                            break
+            except Exception:
+                pass
+        msg_dict = msg.__dict__.copy()
+        msg_dict["nsej"] = msg.nsej
+        extracted_data.append(msg_dict)
+    wish_df = pd.DataFrame(extracted_data)
     for col in ["_sa_instance_state", "id"]:
         if col in wish_df.columns:
             wish_df = wish_df.drop(columns=[col])
@@ -454,58 +484,45 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
             "A03": "D"
         })
     if "clfrom" in wish_df.columns:
-       wish_df["clfrom"] = pd.to_datetime(wish_df["clfrom"], errors="coerce")
-       wish_df = wish_df.sort_values(by=["cbmrn", "clfrom"])
+        wish_df["clfrom"] = pd.to_datetime(wish_df["clfrom"], errors="coerce")
+        wish_df = wish_df.sort_values(by=["cbmrn", "clfrom"])
     if "clnsid" in wish_df.columns:
-       wish_df["nsdscr"] = wish_df["clnsid"].map(unit_names).fillna("")
-       wish_df = wish_df[wish_df["clnsid"].isin(unit_names.keys())]
+        wish_df["nsdscr"] = wish_df["clnsid"].map(unit_names).fillna("")
+        wish_df = wish_df[wish_df["clnsid"].isin(unit_names.keys())]
     wish_df["clfrom"] = pd.to_datetime(wish_df["clfrom"], errors="coerce")
     wish_df = wish_df.sort_values(["cbmrn", "nsej", "clnsid", "clfrom"])
     wish_df["prev_clfrom"] = wish_df.groupby(
-      ["cbmrn", "nsej", "clnsid"]
+        ["cbmrn", "nsej", "clnsid"]
     )["clfrom"].shift(1)
     wish_df["delta_min"] = (
-       (wish_df["clfrom"] - wish_df["prev_clfrom"])
-       .dt.total_seconds() / 60.0
+        (wish_df["clfrom"] - wish_df["prev_clfrom"])
+        .dt.total_seconds() / 60.0
     )
     to_drop = []
     for (pat, sej, unit), grp in wish_df.groupby(["cbmrn", "nsej", "clnsid"]):
-       # repère les indices où delta < 5
-       short = grp[grp["delta_min"] < 5.0]
-       if short.empty:
-         continue
-       # pour chacun de ces cas, on regarde si l’un des deux a clsvtc == "8BLO"
-       for idx in short.index:
-          # ligne actuelle et précédente
-          prev = grp.loc[idx, "prev_clfrom"]
-          cur = grp.loc[idx, "clfrom"]
-          # sous-groupe de ces deux lignes
-          two = grp[(grp["clfrom"] == prev) | (grp["clfrom"] == cur)]
-          if "8BLO" in two["clsvtc"].values:
-              # on supprime toutes sauf celle avec 8BLO
-              drop_idx = two[two["clsvtc"] != "8BLO"].index
-          else:
-             # on supprime toutes sauf la plus récente
-             drop_idx = [two.index.min()]
-          to_drop.extend(drop_idx)
-
-    # ❺ On débarrasse wish_df des lignes indésirables
+        short = grp[grp["delta_min"] < 5.0]
+        if short.empty:
+            continue
+        for idx in short.index:
+            prev = grp.loc[idx, "prev_clfrom"]
+            cur = grp.loc[idx, "clfrom"]
+            two = grp[(grp["clfrom"] == prev) | (grp["clfrom"] == cur)]
+            if "8BLO" in two["clsvtc"].values:
+                drop_idx = two[two["clsvtc"] != "8BLO"].index
+            else:
+                drop_idx = [two.index.min()]
+            to_drop.extend(drop_idx)
     wish_df = wish_df.drop(index=set(to_drop))
-
-    # ❻ On peut nettoyer les colonnes intermédiaires
     wish_df = wish_df.drop(columns=["prev_clfrom", "delta_min"])
-    # 2) Réordonner les colonnes selon votre liste
     wish_order = [
         "clrs_cd", "nsej", "cbmrn", "cbtype", "cbadty", "tsv", "clfrom",
         "clnsid", "nsdscr", "clroom", "clbed", "clsvtc", "tectxtfr",
         "cldept", "svnomf", "nrpr", "nomm", "cltima"
     ]
-    # Garde seulement les colonnes existantes, dans l’ordre
     wish_df = wish_df[[c for c in wish_order if c in wish_df.columns]]
 
-    # 3) Charger Orline et construire le DataFrame
-    orline_messages = db.query(HL7MessageOrline).all()
-    orline_data = [msg.__dict__ for msg in orline_messages]
+    # 2) Charger Orline et construire le DataFrame
+    orline_data = [msg.__dict__ for msg in db.query(HL7MessageOrline).yield_per(500)]
     orline_df = pd.DataFrame(orline_data)
     for col in ["_sa_instance_state", "id"]:
         if col in orline_df.columns:
@@ -513,8 +530,6 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
     if "date_message" in orline_df.columns:
         orline_df["date_message"] = pd.to_datetime(orline_df["date_message"], errors="coerce")
         orline_df = orline_df.sort_values(by=["id_pat", "date_message"])
-
-    # 4) Réordonner les colonnes selon votre liste
     orline_order = [
         "date_message", "message_type", "message_id", "id_pat", "id_sejour",
         "id_ope", "heu_deb_ope_prev", "heu_fin_ope_prev", "tps_ope_prev",
@@ -523,14 +538,68 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
     ]
     orline_df = orline_df[[c for c in orline_order if c in orline_df.columns]]
 
-    # 5) Écrire dans un fichier Excel en mémoire, deux feuilles
+    preadmissions = []
+    for msg in db.query(HL7MessageWish).filter(HL7MessageWish.clrs_cd == "A05"):
+        # Récupérer le message HL7 depuis le fichier original correspondant à message_id
+        filepath = None
+        for folder_path in WATCHED_FOLDERS:
+            for fname in os.listdir(folder_path):
+                if msg.message_id and msg.message_id in fname:
+                    filepath = os.path.join(folder_path, fname)
+                    break
+            if filepath:
+                break
+
+        nsej_value = msg.nsej
+        if not nsej_value and filepath:
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                with open(filepath, "r", encoding="iso-8859-1") as f:
+                    content = f.read()
+
+            for line in content.splitlines():
+                if line.startswith("PV1|"):
+                    fields = line.split("|")
+                    if len(fields) > 6 and fields[6]:
+                        nsej_raw = fields[6].strip()
+                        nsej_value = nsej_raw[1:] if nsej_raw.startswith("1") else nsej_raw
+                        break
+        adm_ent = "UAPO" if msg.sour == "O" else "HOSP"
+        if msg.cbadty == "A":
+            adm_sor = "HOSP"
+        elif msg.cbadty == "Z":
+            adm_sor = "HDJ" if msg.clnsid != "225" else "HDJ"
+        else:
+            adm_sor = ""
+        preadmissions.append([
+            msg.cbmrn,
+            msg.clfrom,
+            msg.clnsid,
+            nsej_value,
+            msg.cldept,
+            msg.nomm,
+            msg.cbadty,
+            msg.sour,
+            adm_ent,
+            adm_sor
+        ])
+
+    preadmission_df = pd.DataFrame(
+        preadmissions,
+        columns=["MRN", "Date admission", "Unité Ch. Lit", "N° admission", "Service", "Méd.", "T. adm.", "Sour.", "Adm_Ent", "Adm_Sor"]
+    )
+
+    # 4) Écriture dans un fichier Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         wish_df.to_excel(writer, index=False, sheet_name="Wish Messages")
         orline_df.to_excel(writer, index=False, sheet_name="Orline Messages")
+        if not preadmission_df.empty:
+            preadmission_df.to_excel(writer, index=False, sheet_name="Pré-admissions")
     output.seek(0)
 
-    # 6) Retour en StreamingResponse pour téléchargement
     headers = {
         "Content-Disposition": 'attachment; filename="hl7_messages_export.xlsx"'
     }
@@ -539,6 +608,7 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
+  
 class UserCreate(BaseModel):
     username: str
     password: str
