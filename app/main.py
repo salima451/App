@@ -443,22 +443,8 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
     extracted_data = []
     for msg in wish_messages:
         nsej = msg.nsej
-
-        # Forcer extraction de nsej depuis PV1 pour A05 si nécessaire
-        if msg.clrs_cd in ["A01", "A02", "A03"] and (not nsej or nsej.strip() == ""):
-            try:
-                if msg.hl7_raw:
-                    for line in msg.hl7_raw.splitlines():
-                        if line.startswith("PV1|"):
-                            parts = line.strip().split("|")
-                            if len(parts) > 19:
-                                raw_nsej = parts[19].strip()
-                                nsej = raw_nsej[1:] if raw_nsej.startswith("1") else raw_nsej
-                            break
-            except Exception:
-                pass
-        if msg.clrs_cd=="A05"and (not nsej or nsej.strip() == ""):
-            try:
+        if msg.clrs_cd == "A05":
+         try:
                 if msg.hl7_raw:
                     for line in msg.hl7_raw.splitlines():
                         if line.startswith("PV1|"):
@@ -469,6 +455,19 @@ def export_all_messages_to_excel(db: Session = Depends(get_db)):
                             break
             except Exception:
                 pass
+        else:
+         try:
+                if msg.hl7_raw:
+                    for line in msg.hl7_raw.splitlines():
+                        if line.startswith("PV1|"):
+                            parts = line.strip().split("|")
+                            if len(parts) > 19:
+                                raw_nsej = parts[19].strip()
+                                nsej = raw_nsej[1:] if raw_nsej.startswith("1") else raw_nsej
+                            break
+            except Exception:
+                pass
+           
         msg_dict = msg.__dict__.copy()
         msg_dict["nsej"] = msg.nsej
         extracted_data.append(msg_dict)
